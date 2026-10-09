@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Orbitální mechanika &amp; Antigravitační sandbox</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230a84ff' stroke-width='2.5'%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3Cpath d='M12 2a10 10 0 0 1 10 10'/%3E%3Cpath d='M12 22a10 10 0 0 1-10-10'/%3E%3C/svg%3E">
+
+  <!-- Import map pro modulární Three.js bez bundlerů -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./vendor/three.module.js",
+      "three/addons/controls/OrbitControls.js": "./vendor/OrbitControls.js",
+      "three/addons/": "./vendor/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <!-- 3D WebGL Plátno -->
+  <div id="canvas-container"></div>
+
+  <!-- HORNÍ PANEL (macOS Toolbar) -->
+  <header id="macos-toolbar" class="macos-material">
+    <div class="toolbar-leading">
+      <!-- Tlačítka okna macOS -->
+      <div class="window-traffic-lights" aria-hidden="true">
+        <span class="traffic-light close"></span>
+        <span class="traffic-light minimize"></span>
+        <span class="traffic-light zoom"></span>
+      </div>
+      <div class="app-identity">
+        <div class="app-title">Orbitální mechanika &amp; Antigravitace</div>
+        <div class="app-subtitle">Symplektický integrátor N-těles • Euler-Cromer</div>
+      </div>
+    </div>
+
+    <!-- Středový přepínač režimu gravitace (macOS Segmented Control) -->
+    <div class="toolbar-center">
+      <div class="segmented-control" id="gravity-mode-switch" role="group" aria-label="Režim gravitace">
+        <button class="segment-item attractive active" id="btn-mode-attractive" title="Newtonovská přitažlivost [Zkratka: G]">
+          <span class="segment-indicator-dot"></span>
+          <span>Přitažlivost (G &gt; 0)</span>
+        </button>
+        <button class="segment-item repulsive" id="btn-mode-repulsive" title="Odpudivá antigravitace [Zkratka: G]">
+          <span class="segment-indicator-dot"></span>
+          <span>Antigravitace (G &lt; 0)</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Akce nástrojové lišty -->
+    <div class="toolbar-trailing">
+      <button id="btn-open-tutorial" class="toolbar-button primary" title="Průvodce simulací">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+          <line x1="12" y1="17" x2="12.01" y2="17"></line>
+        </svg>
+        <span>Průvodce</span>
+      </button>
+
+      <button id="btn-open-math" class="toolbar-button" title="Fyzikální a matematický model">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="4" y1="19" x2="20" y2="19"></line>
+          <polyline points="4 6 10 12 14 8 20 14"></polyline>
+        </svg>
+        <span>Matematika</span>
+      </button>
+
+      <button id="tool-toggle-sidebar" class="toolbar-button" title="Skrýt / Zobrazit inspektor [Zkratka: H]">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+          <line x1="9" y1="3" x2="9" y2="21"></line>
+        </svg>
+        <span>Inspektor</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- macOS BOČNÍ INSPEKTOR -->
+  <aside id="macos-inspector" class="macos-material">
+    <!-- Segmentovaný přepínač záložek -->
+    <div class="inspector-tabs-wrapper">
+      <div class="inspector-segmented-tabs">
+        <button class="inspector-tab active" data-tab="tab-physics">Fyzika</button>
+        <button class="inspector-tab" data-tab="tab-bodies">Tělesa (<span id="tab-body-count">4</span>)</button>
+        <button class="inspector-tab" data-tab="tab-presets">Scénáře</button>
+        <button class="inspector-tab" data-tab="tab-telemetry">Energie</button>
+        <button class="inspector-tab" data-tab="tab-export">Export</button>
+      </div>
+    </div>
+
+    <!-- ZÁLOŽKA 1: FYZIKÁLNÍ PARAMETRY -->
+    <div id="tab-physics" class="inspector-pane active">
+      <div class="group-section">
+        <div class="group-title">Gravitační pole</div>
+        <div class="group-card">
+          <div class="control-row">
+            <span class="control-label">Gravitační konstanta (G)</span>
+            <div class="slider-wrapper">
+              <input type="range" id="slider-g" min="-2.0" max="2.0" step="0.05" value="1.0">
+              <span id="val-g" class="value-badge">1.00</span>
+            </div>
+          </div>
+
+          <div class="control-row">
+            <span class="control-label">Vyhlazovací délka (ε)</span>
+            <div class="slider-wrapper">
+              <input type="range" id="slider-softening" min="0.01" max="1.0" step="0.01" value="0.10">
+              <span id="val-softening" class="value-badge">0.10</span>
+            </div>
+          </div>
+
+          <div class="control-row">
+            <span class="control-label">Časový krok (Δt)</span>
+            <div class="slider-wrapper">
+              <input type="range" id="slider-dt" min="0.002" max="0.03" step="0.001" value="0.01">
+              <span id="val-dt" class="value-badge">0.010</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="group-section">
+        <div class="group-title">Přepnutí do antigravitace</div>
+        <div class="group-card">
+          <div class="control-row">
+            <div>
+              <div class="control-label">Automatické přepnutí</div>
+              <div class="control-caption">Inverze znaménka v určeném kroku</div>
+            </div>
+            <label class="macos-switch">
+              <input type="checkbox" id="check-auto-toggle" checked>
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+
+          <div class="control-row" id="row-auto-step">
+            <span class="control-label">Krok přepnutí (T_toggle)</span>
+            <div class="slider-wrapper">
+              <input type="range" id="slider-toggle-step" min="100" max="1500" step="50" value="500">
+              <span id="val-toggle-step" class="value-badge">500</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="group-section">
+        <div class="group-title">Rozšířená mechanika</div>
+        <div class="group-card">
+          <div class="control-row">
+            <div>
+              <div class="control-label">Nepružné srážky těles</div>
+              <div class="control-caption">Zachování hmotnosti a hybnosti</div>
+            </div>
+            <label class="macos-switch">
+              <input type="checkbox" id="check-collision">
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+
+          <div class="control-row">
+            <span class="control-label">Sub-kroky integrace</span>
+            <select id="select-substeps" class="macos-select">
+              <option value="1" selected>1 (Standardní)</option>
+              <option value="2">2 (Vyšší přesnost)</option>
+              <option value="4">4 (Vysoká přesnost)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ZÁLOŽKA 2: NEBESKÁ TĚLESA -->
+    <div id="tab-bodies" class="inspector-pane">
+      <div class="group-title" style="margin-bottom: 10px;">
+        <span>Seznam těles</span>
+        <button id="btn-open-add-body" class="action-btn-mini" style="color: var(--apple-blue);">
+          + Přidat těleso
+        </button>
+      </div>
+
+      <div id="bodies-list-container">
+        <!-- Dynamicky generované položky těles -->
+      </div>
+    </div>
+
+    <!-- ZÁLOŽKA 3: SCÉNÁŘE OBĚHU -->
+    <div id="tab-presets" class="inspector-pane">
+      <div class="group-title">Přednastavené soustavy</div>
+      <div id="presets-list-container">
+        <!-- Dynamicky generované scénáře -->
+      </div>
+    </div>
+
+    <!-- ZÁLOŽKA 4: ENERGIE & TELEMETRIE -->
+    <div id="tab-telemetry" class="inspector-pane">
+      <div class="group-title">Sledování mechanické energie</div>
+      <div class="activity-chart-box">
+        <canvas id="telemetry-canvas"></canvas>
+      </div>
+
+      <div class="chart-legend-row">
+        <div class="legend-swatch-item">
+          <span class="legend-swatch" style="background: #63e6e2;"></span>
+          <span>Ek (Kinetická)</span>
+        </div>
+        <div class="legend-swatch-item">
+          <span class="legend-swatch" style="background: #ff453a;"></span>
+          <span>Ep (Potenciální)</span>
+        </div>
+        <div class="legend-swatch-item">
+          <span class="legend-swatch" style="background: #0a84ff;"></span>
+          <span>E (Celková)</span>
+        </div>
+      </div>
+
+      <div class="metrics-table">
+        <div class="metric-cell">
+          <div class="metric-cell-label">Krok simulace</div>
+          <div class="metric-cell-val" id="telemetry-step">0</div>
+        </div>
+        <div class="metric-cell">
+          <div class="metric-cell-label">Simulační čas</div>
+          <div class="metric-cell-val" id="telemetry-time">0.00 s</div>
+        </div>
+        <div class="metric-cell">
+          <div class="metric-cell-label">Aktivní konstanta G</div>
+          <div class="metric-cell-val" id="telemetry-g">1.00</div>
+        </div>
+        <div class="metric-cell">
+          <div class="metric-cell-label">Počet těles</div>
+          <div class="metric-cell-val" id="telemetry-body-count">4</div>
+        </div>
+        <div class="metric-cell">
+          <div class="metric-cell-label">Kinetická energie (Ek)</div>
+          <div class="metric-cell-val" style="color: #63e6e2;" id="telemetry-ek">0.0</div>
+        </div>
+        <div class="metric-cell">
+          <div class="metric-cell-label">Potenciální energie (Ep)</div>
+          <div class="metric-cell-val" style="color: #ff453a;" id="telemetry-ep">0.0</div>
+        </div>
+        <div class="metric-cell" style="grid-column: span 2;">
+          <div class="metric-cell-label">Celková mechanická energie (E)</div>
+          <div class="metric-cell-val" style="color: #0a84ff;" id="telemetry-etot">0.0</div>
+        </div>
+        <div class="metric-cell" style="grid-column: span 2;">
+          <div class="metric-cell-label">Těžiště soustavy [X, Y, Z]</div>
+          <div class="metric-cell-val" style="font-size: 11px;" id="telemetry-cm-pos">[0.0, 0.0, 0.0]</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ZÁLOŽKA 5: EXPORT DAT -->
+    <div id="tab-export" class="inspector-pane">
+      <div class="group-section">
+        <div class="group-title">Export pro 3D grafiku &amp; animaci</div>
+        <div class="group-card">
+          <p style="font-size: 11.5px; color: var(--apple-text-secondary); line-height: 1.4;">
+            Export prostorové historie trajektorií do matice [T × N × 3] pro Blender (Geometry Nodes), Unreal Engine nebo Python.
+          </p>
+
+          <button id="btn-export-json" class="toolbar-button primary" style="width: 100%; justify-content: center;">
+            Exportovat matici do JSON
+          </button>
+
+          <button id="btn-export-csv" class="toolbar-button" style="width: 100%; justify-content: center;">
+            Exportovat trajektorie do CSV
+          </button>
+
+          <button id="btn-export-preset" class="toolbar-button" style="width: 100%; justify-content: center;">
+            Uložit soustavu do JSON
+          </button>
+        </div>
+      </div>
+
+      <div class="group-section">
+        <div class="group-title">Referenční kód v Pythonu</div>
+        <div class="group-card">
+          <p style="font-size: 11.5px; color: var(--apple-text-secondary); line-height: 1.4;">
+            Referenční implementace v NumPy z kapitoly 5 technické specifikace.
+          </p>
+          <button id="btn-view-python" class="toolbar-button" style="width: 100%; justify-content: center;">
+            Zobrazit kód kapitoly 5
+          </button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- POHLEDOVÉ NÁSTROJE (Plovoucí lišta vpravo nahoře) -->
+  <div id="macos-view-tools" class="macos-material">
+    <button id="tool-cam-perspective" class="view-tool-btn active" title="3D perspektivní kamera">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+      </svg>
+    </button>
+    <button id="tool-cam-top" class="view-tool-btn" title="Pohled shora XY [Zkratka: T]">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <circle cx="12" cy="12" r="9"></circle>
+        <line x1="12" y1="3" x2="12" y2="21"></line>
+        <line x1="3" y1="12" x2="21" y2="12"></line>
+      </svg>
+    </button>
+    <button id="tool-toggle-trails" class="view-tool-btn active" title="Zobrazit trajektorie oběhu">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
+        <line x1="4" y1="22" x2="4" y2="15"></line>
+      </svg>
+    </button>
+    <button id="tool-toggle-grid" class="view-tool-btn active" title="Zobrazit souřadnicovou mřížku">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+        <path d="M3 9h18M3 15h18M9 3v18M15 3v18"></path>
+      </svg>
+    </button>
+    <button id="tool-toggle-vectors" class="view-tool-btn" title="Zobrazit vektory rychlosti [Zkratka: V]">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <line x1="5" y1="19" x2="19" y2="5"></line>
+        <polyline points="10 5 19 5 19 14"></polyline>
+      </svg>
+    </button>
+    <button id="tool-clear-trails" class="view-tool-btn" title="Vymazat stopy trajektorií [Zkratka: C]">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <polyline points="3 6 5 6 21 6"></polyline>
+        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+      </svg>
+    </button>
+  </div>
+
+  <!-- SPODNÍ ČASOVÝ A PŘEHRÁVACÍ PANEL (QuickTime / Final Cut Pro styl) -->
+  <footer id="macos-dock" class="macos-material">
+    <div class="dock-playback-group">
+      <button id="btn-play-pause" class="transport-btn primary" title="Spustit / Pozastavit [Mezerník]">
+        <svg id="icon-play" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+        <svg id="icon-pause" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="display:none;">
+          <rect x="6" y="4" width="4" height="16"></rect>
+          <rect x="14" y="4" width="4" height="16"></rect>
+        </svg>
+      </button>
+
+      <button id="btn-step" class="transport-btn" title="Jeden krok vpřed [Zkratka: .]">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="5 4 15 12 5 20 5 4"></polygon>
+          <line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="3"></line>
+        </svg>
+      </button>
+
+      <button id="btn-reset" class="transport-btn" title="Výchozí stav [Zkratka: R]">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 2v6h6"></path>
+          <path d="M3 13a9 9 0 1 0 3-7.7L3 8"></path>
+        </svg>
+      </button>
+
+      <!-- Rychlost přehrávání (macOS Segmented) -->
+      <div class="speed-segmented">
+        <button class="speed-segment-btn" data-speed="0.5">0.5×</button>
+        <button class="speed-segment-btn active" data-speed="1.0">1×</button>
+        <button class="speed-segment-btn" data-speed="2.0">2×</button>
+        <button class="speed-segment-btn" data-speed="5.0">5×</button>
+      </div>
+    </div>
+
+    <!-- Časová osa a posuvník -->
+    <div class="scrubber-zone">
+      <div class="timecode-readout">
+        <span id="counter-step">0</span> / 1000 kroků
+      </div>
+      <input type="range" id="timeline-scrubber" class="scrubber-track" min="0" max="1000" value="0">
+    </div>
+  </footer>
+
+  <!-- MODÁLNÍ LIST: PRŮVODCE SIMULACÍ (Tutorial Sheet) -->
+  <div id="modal-tutorial" class="modal-sheet-backdrop">
+    <div class="modal-sheet-window">
+      <div class="sheet-header">
+        <div class="sheet-title">Průvodce: Jak funguje orbitální simulace a antigravitace</div>
+        <button class="sheet-close-btn" id="btn-close-tutorial">&times;</button>
+      </div>
+
+      <div class="sheet-body">
+        <div class="tutorial-step-card">
+          <div class="step-header">
+            <span class="step-number">KROK 1</span>
+            <div class="step-title">Co tento projekt dělá?</div>
+          </div>
+          <div class="step-content">
+            Aplikace v reálném čase simuluje vzájemné gravitační působení těles (např. hvězdy a planet) ve 3D prostoru na základě klasických fyzikálních zákonů. Můžete sledovat oběžné dráhy, měnit hmotnosti za běhu, přidávat nová tělesa a pozorovat, co se stane při obrácení gravitace.
+          </div>
+        </div>
+
+        <div class="tutorial-step-card">
+          <div class="step-header">
+            <span class="step-number">KROK 2</span>
+            <div class="step-title">Newtonovská gravitace a Euler-Cromer</div>
+          </div>
+          <div class="step-content">
+            Každá dvojice těles na sebe působí přitažlivou silou úměrnou součinu jejich hmotností a nepřímo úměrnou čtverci vzdálenosti. K numerické integraci se používá <strong>symplektický integrátor Euler-Cromer</strong>, který nejprve aktualizuje rychlost a až poté polohu. Díky tomu si soustava uchovává energii a dráhy zůstávají stabilní po tisíce kroků.
+          </div>
+          <div class="math-code-box">
+F_ij = G · (m_i · m_j) / (|r_ij|² + ε²) · (r_ij / |r_ij|)
+v_i(t + Δt) = v_i(t) + a_i(t) · Δt
+r_i(t + Δt) = r_i(t) + v_i(t + Δt) · Δt
+          </div>
+        </div>
+
+        <div class="tutorial-step-card">
+          <div class="step-header">
+            <span class="step-number">KROK 3</span>
+            <div class="step-title">Fenomén Antigravitace (G ➔ -G)</div>
+          </div>
+          <div class="step-content">
+            V nastaveném okamžiku (výchozí je krok 500) nebo po stisknutí tlačítka <strong>Antigravitace</strong> (či klávesy <strong>G</strong>) se znaménko gravitační konstanty invertuje ze záporného na kladné. Gravitační potenciálové jámy se v ten moment přemění na odpudivé kopce, což způsobí chaotický a vysokorychlostní hyperbolický rozptyl všech vázaných těles do volného prostoru.
+          </div>
+        </div>
+
+        <div class="tutorial-step-card">
+          <div class="step-header">
+            <span class="step-number">KROK 4</span>
+            <div class="step-title">Klávesové zkratky a ovládání</div>
+          </div>
+          <div class="step-content">
+            <ul style="list-style-type: none; padding-left: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+              <li><strong>Mezerník</strong> — Přehrát / Pozastavit</li>
+              <li><strong>G</strong> — Přepnout Gravitaci / Antigravitaci</li>
+              <li><strong>R</strong> — Obnovit výchozí stav</li>
+              <li><strong>. (tečka)</strong> — Posun o 1 krok vpřed</li>
+              <li><strong>C</strong> — Vymazat stopy trajektorií</li>
+              <li><strong>H</strong> — Skrýt / Zobrazit inspektor</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="sheet-footer">
+        <button id="btn-dismiss-tutorial" class="toolbar-button primary">Rozumím, pokračovat</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODÁLNÍ LIST: MATEMATICKÝ MODEL -->
+  <div id="modal-math" class="modal-sheet-backdrop">
+    <div class="modal-sheet-window">
+      <div class="sheet-header">
+        <div class="sheet-title">Fyzikální a matematická architektura</div>
+        <button class="sheet-close-btn" id="btn-close-math">&times;</button>
+      </div>
+
+      <div class="sheet-body">
+        <h4 style="color: var(--apple-text-primary); margin-bottom: 6px;">1. Gravitační silový model s vyhlazením</h4>
+        <p>
+          Vzájemná gravitační síla působící mezi tělesy je počítána podle Newtonova gravitačního zákona s vyhlazovacím parametrem ε (softening), který zabraňuje nekonečnému zrychlení při těsných průletech těles:
+        </p>
+        <div class="math-code-box">
+F_ij = G · (m_i · m_j) / (|r_ij|² + ε²) · (r_ij / |r_ij|)
+a_i  = G · Σ [m_j · r_ij / (|r_ij|² + ε²)^(3/2)]
+        </div>
+
+        <h4 style="color: var(--apple-red); margin-top: 14px; margin-bottom: 6px;">2. Inverze gravitačního pole (Antigravitace)</h4>
+        <p>
+          Při dosažení zadaného kroku T_toggle nebo manuálním přepnutím se změní znaménko gravitační konstanty:
+        </p>
+        <div class="math-code-box">
+G(t) = +G_0  pro t &lt; T_toggle  (Přitažlivé Newtonovské orbity)
+G(t) = -G_0  pro t ≥ T_toggle  (Odpudivý hyperbolický rozptyl)
+        </div>
+
+        <h4 style="color: var(--apple-blue); margin-top: 14px; margin-bottom: 6px;">3. Symplektický Euler-Cromerův integrátor</h4>
+        <p>
+          Zachovává objem fázového prostoru a stabilitu oběhu těles bez nežádoucího numerického tlumení:
+        </p>
+        <div class="math-code-box">
+v_i(t + Δt) = v_i(t) + a_i(t) · Δt
+r_i(t + Δt) = r_i(t) + v_i(t + Δt) · Δt
+        </div>
+      </div>
+
+      <div class="sheet-footer">
+        <button id="btn-dismiss-math" class="toolbar-button">Zavřít</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODÁLNÍ LIST: PŘIDÁNÍ NOVÉHO TĚLESA -->
+  <div id="modal-add-body" class="modal-sheet-backdrop">
+    <div class="modal-sheet-window" style="max-width: 440px;">
+      <div class="sheet-header">
+        <div class="sheet-title">Přidat nebeské těleso</div>
+        <button class="sheet-close-btn" id="btn-close-add-modal">&times;</button>
+      </div>
+
+      <div class="sheet-body">
+        <div class="group-section">
+          <div class="group-title">Základní vlastnosti</div>
+          <div class="group-card">
+            <div class="control-row">
+              <span class="control-label">Název tělesa</span>
+              <input type="text" id="input-new-name" class="macos-select" value="Planeta Delta" style="width: 150px;">
+            </div>
+
+            <div class="control-row">
+              <span class="control-label">Hmotnost (M)</span>
+              <input type="number" id="input-new-mass" class="macos-select" value="1.5" step="0.1" style="width: 80px;">
+            </div>
+
+            <div class="control-row">
+              <span class="control-label">Barva</span>
+              <input type="color" id="input-new-color" value="#0a84ff" style="border: none; background: none; width: 32px; height: 26px; cursor: pointer;">
+            </div>
+          </div>
+        </div>
+
+        <div class="group-section">
+          <div class="group-title">Počáteční pozice [X, Y, Z]</div>
+          <div class="group-card">
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;">
+              <input type="number" id="input-new-pos-x" class="macos-select" value="12" step="0.5">
+              <input type="number" id="input-new-pos-y" class="macos-select" value="0" step="0.5">
+              <input type="number" id="input-new-pos-z" class="macos-select" value="0" step="0.5">
+            </div>
+          </div>
+        </div>
+
+        <div class="group-section">
+          <div class="group-title">Počáteční rychlost [Vx, Vy, Vz]</div>
+          <div class="group-card">
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;">
+              <input type="number" id="input-new-vel-x" class="macos-select" value="0" step="0.5">
+              <input type="number" id="input-new-vel-y" class="macos-select" value="9.1" step="0.5">
+              <input type="number" id="input-new-vel-z" class="macos-select" value="0.5" step="0.5">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sheet-footer">
+        <button id="btn-cancel-add-body" class="toolbar-button">Zrušit</button>
+        <button id="btn-confirm-add-body" class="toolbar-button primary">Vytvořit těleso</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- OZNAMOVACÍ PRVKY (Apple Notification Toasts) -->
+  <div id="notification-container"></div>
+
+  <!-- Hlavní aplikační kód -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
